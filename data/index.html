@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gartenbewässerung</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --water: #38bdf8;
+    --water-low: #f87171;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 0.9rem; }
+
+  .alarm-banner {
+    display: none;
+    background: var(--danger);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    font-weight: 600;
+  }
+  .alarm-banner.show { display: block; }
+
+  .tanks {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .tank-card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 16px;
+    flex: 1;
+    min-width: 220px;
+    text-align: center;
+    position: relative;
+    border: 2px solid transparent;
+  }
+  .tank-card.active { border-color: var(--ok); }
+
+  .tank-title { font-weight: 600; margin-bottom: 4px; }
+  .tank-status { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; }
+
+  .tank-visual {
+    width: 90px;
+    height: 160px;
+    margin: 0 auto 12px;
+    border: 3px solid #475569;
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+    background: #0b1220;
+  }
+  .tank-fill {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: linear-gradient(180deg, var(--water), #0284c7);
+    transition: height 0.6s ease;
+  }
+  .tank-fill.low { background: linear-gradient(180deg, var(--water-low), #b91c1c); }
+
+  .pct { font-size: 1.6rem; font-weight: 700; }
+  .liters { color: var(--muted); font-size: 0.85rem; margin-bottom: 10px; }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge.open { background: rgba(52,211,153,0.15); color: var(--ok); }
+  .badge.closed { background: rgba(148,163,184,0.15); color: var(--muted); }
+
+  .controls {
+    margin-top: 24px;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 16px;
+  }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .row:last-child { margin-bottom: 0; }
+
+  button {
+    background: #334155;
+    color: var(--text);
+    border: none;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  button:hover { background: #475569; }
+  button.primary { background: var(--water); color: #04202e; font-weight: 600; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .switch {
+    position: relative;
+    width: 46px; height: 26px;
+    background: #334155;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .switch.on { background: var(--ok); }
+  .switch .knob {
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 20px; height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: left 0.2s ease;
+  }
+  .switch.on .knob { left: 23px; }
+
+  .manual-buttons { display: flex; gap: 8px; }
+
+  .chart-card {
+    margin-top: 16px;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 16px;
+  }
+  .chart-card h2 { font-size: 1rem; margin: 0 0 10px; }
+  .chart-wrap { position: relative; height: 220px; }
+  .chart-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 30px 0; }
+
+  .status-bar {
+    margin-top: 16px;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 12px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .status-item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--danger); }
+  .dot.warn { background: var(--warn); }
+</style>
+</head>
+<body>
+
+  <h1>💧 Gartenbewässerung</h1>
+  <div class="sub">Tanksteuerung · 2 × IBC 1000L · Automatische Umschaltung</div>
+
+  <div id="alarmBanner" class="alarm-banner">⚠️ Beide Tanks leer – Ventile geschlossen!</div>
+
+  <div class="tanks">
+    <div class="tank-card" id="cardTank0">
+      <div class="tank-title">Tank 1</div>
+      <div class="tank-status" id="status0">–</div>
+      <div class="tank-visual"><div class="tank-fill" id="fill0" style="height:0%"></div></div>
+      <div class="pct" id="pct0">–</div>
+      <div class="liters" id="liters0">– L</div>
+      <span class="badge closed" id="valveBadge0">Ventil zu</span>
+    </div>
+
+    <div class="tank-card" id="cardTank1">
+      <div class="tank-title">Tank 2</div>
+      <div class="tank-status" id="status1">–</div>
+      <div class="tank-visual"><div class="tank-fill" id="fill1" style="height:0%"></div></div>
+      <div class="pct" id="pct1">–</div>
+      <div class="liters" id="liters1">– L</div>
+      <span class="badge closed" id="valveBadge1">Ventil zu</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="row">
+      <div>Automatikbetrieb</div>
+      <div class="switch" id="autoSwitch" onclick="toggleAuto()"><div class="knob"></div></div>
+    </div>
+    <div class="row">
+      <div>Manuell aktiven Tank wählen</div>
+      <div class="manual-buttons">
+        <button id="btnTank0" onclick="setTank(0)">Tank 1</button>
+        <button id="btnTank1" onclick="setTank(1)">Tank 2</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <h2>Verlauf (letzte 3 Tage)</h2>
+    <div class="chart-wrap"><canvas id="historyChart"></canvas></div>
+    <div class="chart-empty" id="chartEmpty" style="display:none">Noch keine Verlaufsdaten – erster Punkt folgt in Kürze.</div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-item"><span class="dot" id="dotMqtt"></span><span id="txtMqtt">MQTT: –</span></div>
+    <div class="status-item"><span class="dot" id="dotSensor0"></span><span id="txtSensor0">Sensor Tank 1: –</span></div>
+    <div class="status-item"><span class="dot" id="dotSensor1"></span><span id="txtSensor1">Sensor Tank 2: –</span></div>
+    <div class="status-item"><span id="txtWifi">WLAN: –</span></div>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script>
+async function fetchStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    render(data);
+  } catch (e) {
+    console.error('Statusabfrage fehlgeschlagen', e);
+    setConnFallback();
+  }
+}
+
+function setConnFallback() {
+  const dot = document.getElementById('dotMqtt');
+  dot.className = 'dot bad';
+  document.getElementById('txtMqtt').textContent = 'ESP32 nicht erreichbar';
+}
+
+function render(data) {
+  data.tanks.forEach(t => {
+    const fillEl = document.getElementById('fill' + t.index);
+    const pctEl = document.getElementById('pct' + t.index);
+    const litersEl = document.getElementById('liters' + t.index);
+    const cardEl = document.getElementById('cardTank' + t.index);
+    const statusEl = document.getElementById('status' + t.index);
+    const valveBadge = document.getElementById('valveBadge' + t.index);
+
+    fillEl.style.height = t.fillPct + '%';
+    fillEl.classList.toggle('low', t.fillPct <= data.config.lowThresholdPct);
+    pctEl.textContent = t.fillPct.toFixed(1) + ' %';
+    litersEl.textContent = Math.round(t.liters) + ' L';
+
+    cardEl.classList.toggle('active', data.activeTank === t.index);
+    statusEl.textContent = data.activeTank === t.index ? 'Aktiv – versorgt Bewässerung' : 'Standby';
+
+    valveBadge.textContent = t.valveOpen ? 'Ventil offen' : 'Ventil zu';
+    valveBadge.classList.toggle('open', t.valveOpen);
+    valveBadge.classList.toggle('closed', !t.valveOpen);
+  });
+
+  document.getElementById('alarmBanner').classList.toggle('show', data.alarm);
+
+  const autoSwitch = document.getElementById('autoSwitch');
+  autoSwitch.classList.toggle('on', data.autoMode);
+
+  document.getElementById('btnTank0').disabled = data.autoMode;
+  document.getElementById('btnTank1').disabled = data.autoMode;
+
+  // ---- Verbindungsstatus ----
+  const mqttDot = document.getElementById('dotMqtt');
+  mqttDot.className = 'dot ' + (data.mqttConnected ? 'ok' : 'bad');
+  document.getElementById('txtMqtt').textContent =
+    'MQTT/Nous L14: ' + (data.mqttConnected ? 'verbunden' : 'getrennt');
+
+  data.tanks.forEach(t => {
+    const dot = document.getElementById('dotSensor' + t.index);
+    const txt = document.getElementById('txtSensor' + t.index);
+    const ageTxt = formatAge(t.lastReadAgoSec);
+    if (t.sensorOk) {
+      dot.className = 'dot ok';
+      txt.textContent = `Sensor Tank ${t.index + 1}: aktuell (${ageTxt})`;
+    } else {
+      dot.className = 'dot warn';
+      txt.textContent = `Sensor Tank ${t.index + 1}: ⚠️ seit ${ageTxt} keine Daten`;
+    }
+  });
+
+  if (typeof data.wifiRssi === 'number') {
+    document.getElementById('txtWifi').textContent = `WLAN: ${data.wifiRssi} dBm`;
+  }
+}
+
+function formatAge(sec) {
+  if (sec < 60) return `vor ${sec}s`;
+  if (sec < 3600) return `vor ${Math.round(sec / 60)}min`;
+  return `vor ${Math.round(sec / 3600)}h`;
+}
+
+async function toggleAuto() {
+  const isOn = document.getElementById('autoSwitch').classList.contains('on');
+  const res = await fetch('/api/mode', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({auto: !isOn})
+  });
+  render(await res.json());
+}
+
+async function setTank(idx) {
+  const res = await fetch('/api/valve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({tank: idx})
+  });
+  render(await res.json());
+}
+
+// ---- Verlaufsdiagramm ----
+let historyChart = null;
+
+function initChart() {
+  const ctx = document.getElementById('historyChart').getContext('2d');
+  historyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Tank 1',
+          data: [],
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56,189,248,0.1)',
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2,
+          fill: true
+        },
+        {
+          label: 'Tank 2',
+          data: [],
+          borderColor: '#34d399',
+          backgroundColor: 'rgba(52,211,153,0.1)',
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2,
+          fill: true
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: v => v + '%' }, grid: { color: '#334155' } },
+        x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: '#1e293b' } }
+      },
+      plugins: {
+        legend: { labels: { color: '#e2e8f0' } }
+      }
+    }
+  });
+}
+
+async function fetchHistory() {
+  try {
+    const res = await fetch('/api/history');
+    const data = await res.json();
+    const points = data.points || [];
+    const emptyEl = document.getElementById('chartEmpty');
+
+    if (points.length === 0) {
+      emptyEl.style.display = 'block';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    const labels = points.map(p => {
+      if (!p.t) return '–'; // NTP noch nicht synchronisiert
+      const d = new Date(p.t * 1000);
+      return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    });
+
+    historyChart.data.labels = labels;
+    historyChart.data.datasets[0].data = points.map(p => p.p1);
+    historyChart.data.datasets[1].data = points.map(p => p.p2);
+    historyChart.update();
+  } catch (e) {
+    console.error('Verlauf konnte nicht geladen werden', e);
+  }
+}
+
+initChart();
+fetchStatus();
+fetchHistory();
+setInterval(fetchStatus, 2000);
+setInterval(fetchHistory, 60000); // Verlauf muss nicht so oft aktualisiert werden wie der Live-Status
+</script>
+</body>
+</html>
